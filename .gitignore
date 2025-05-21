@@ -1,3 +1,4 @@
 conversion.log
 __pycache__/conversion_utils.cpython-311.pyc
 __pycache__/ffmpeg_wrapper.cpython-311.pyc
+conversion_gui.log
