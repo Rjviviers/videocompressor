@@ -71,6 +71,8 @@ def setup_argument_parser():
     parser.add_argument("--dry_run", action='store_true', default=False, help="Log actions but do not execute FFmpeg or modify files.")
     return parser
 
+VIDEO_EXTENSIONS_FOR_SCAN = ('.mkv', '.avi', '.mov', '.mp4', '.ts', '.mpg', '.flv', '.wmv') # Used by GUI scan
+
 class Application(tk.Tk):
     def __init__(self, args):
         super().__init__()
@@ -80,6 +82,7 @@ class Application(tk.Tk):
 
         self.update_queue = queue.Queue()
         self.current_pending_files = [] # To manage the pending listbox items
+        self.scan_thread = None # For the preview scan
 
         # Main layout frames
         top_controls_frame = ttk.Frame(self)
@@ -101,10 +104,13 @@ class Application(tk.Tk):
         self.browse_button = ttk.Button(input_options_frame, text="Browse", command=self.browse_directory)
         self.browse_button.grid(row=0, column=2, padx=5, pady=5)
         
-        ttk.Label(input_options_frame, text="GPU Type:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        self.scan_files_button = ttk.Button(input_options_frame, text="Scan Files (Show Queue)", command=self.start_scan_files_thread)
+        self.scan_files_button.grid(row=1, column=1, columnspan=2, padx=5, pady=5, sticky="ew") # Spans across entry and browse
+        
+        ttk.Label(input_options_frame, text="GPU Type:").grid(row=2, column=0, padx=5, pady=5, sticky="w")
         self.gpu_type_var = tk.StringVar(value=self.args.gpu_type)
         self.gpu_type_combo = ttk.Combobox(input_options_frame, textvariable=self.gpu_type_var, values=['nvidia', 'intel', 'amd', 'cpu'], state="readonly", width=10)
-        self.gpu_type_combo.grid(row=1, column=1, padx=5, pady=5, sticky="w")
+        self.gpu_type_combo.grid(row=2, column=1, padx=5, pady=5, sticky="w")
         input_options_frame.columnconfigure(1, weight=1)
 
         # --- Advanced Options Frame (in top_controls_frame) ---
@@ -229,44 +235,66 @@ class Application(tk.Tk):
             "update_queue": self.update_queue
         }
 
-    def set_controls_state(self, state):
-        """Enable or disable controls during conversion."""
-        self.start_button.config(state=state)
-        self.browse_button.config(state=state)
-        self.input_dir_entry.config(state=state)
-        self.gpu_type_combo.config(state=state)
-        self.quality_level_entry.config(state=state)
-        self.h265_profile_combo.config(state=state)
-        self.audio_codec_entry.config(state=state)
+    def set_controls_state(self, state, scanning_preview=False):
+        """Enable or disable controls. If scanning_preview is True, only scan button is affected."""
+        if scanning_preview:
+            self.scan_files_button.config(state=state)
+            return
+
+        # Normal operation: affect all controls
+        for widget in [self.start_button, self.browse_button, self.input_dir_entry, self.gpu_type_combo,
+                       self.quality_level_entry, self.h265_profile_combo, self.audio_codec_entry,
+                       self.skip_existing_check, self.dry_run_check, self.scan_files_button]: # Added scan_files_button
+            widget.config(state=state)
         self.audio_quality_entry.config(state=("disabled" if self.audio_codec_var.get().lower() == 'copy' else state))
-        self.skip_existing_check.config(state=state)
-        self.dry_run_check.config(state=state)
+
+    def scan_files_for_preview_thread_target(self):
+        self.set_controls_state("disabled", scanning_preview=True)
+        input_dir = self.input_dir_var.get()
+        if not input_dir or not os.path.isdir(input_dir):
+            self.update_queue.put(("log", "Error: Please select a valid input directory for scan preview."))
+            # No messagebox here as it's from a thread, GUI will show log
+            self.set_controls_state("normal", scanning_preview=True)
+            return
+
+        preview_files = []
+        try:
+            for dirpath, _, filenames in os.walk(input_dir):
+                for filename in filenames:
+                    if filename.lower().endswith(VIDEO_EXTENSIONS_FOR_SCAN):
+                        preview_files.append(os.path.basename(filename))
+            self.update_queue.put(("preview_pending_list", preview_files))
+            self.update_queue.put(("log", f"Scan Preview: Found {len(preview_files)} video files."))
+        except Exception as e:
+            self.update_queue.put(("log", f"Error during scan preview: {e}"))
+        finally:
+            self.set_controls_state("normal", scanning_preview=True)
+
+    def start_scan_files_thread(self):
+        self.log_message("Starting directory scan for queue preview...")
+        self.pending_listbox.delete(0, tk.END) # Clear previous preview
+        self.current_pending_files.clear()
+        self.scan_thread = threading.Thread(target=self.scan_files_for_preview_thread_target, daemon=True)
+        self.scan_thread.start()
 
     def start_conversion_thread(self):
         current_config = self.get_config_from_gui()
         if not current_config:
             return
-
         if not current_config["input_dir"] or not os.path.isdir(current_config["input_dir"]):
             self.log_message("Error: Please select a valid input directory.", logging.ERROR)
             messagebox.showerror("Error", "Please select a valid input directory.")
             return
-
-        self.set_controls_state("disabled")
+        self.set_controls_state("disabled") # Disables all controls, including scan button
         self.progress_bar["value"] = 0
         self.progress_label_var.set("Scanning... | 0%")
         self.log_message(f"Starting conversion for: {current_config['input_dir']}", logging.INFO)
-        logging.info(f"Conversion settings: {current_config}") # Log the full config
-        
-        # Clear previous lists
+        logging.info(f"Conversion settings: {current_config}")
         self.pending_listbox.delete(0, tk.END)
         self.processed_listbox.delete(0, tk.END)
         self.current_pending_files.clear()
-        
         from conversion_utils import process_media_library
-        self.conversion_thread = threading.Thread(target=process_media_library, 
-                                              args=(current_config["input_dir"], current_config),
-                                              daemon=True)
+        self.conversion_thread = threading.Thread(target=process_media_library, args=(current_config["input_dir"], current_config), daemon=True)
         self.conversion_thread.start()
 
     def process_queue(self):
@@ -286,16 +314,19 @@ class Application(tk.Tk):
                     percentage = (current / total * 100) if total > 0 else 0
                     self.progress_label_var.set(f"{current}/{total} files | {percentage:.1f}%")
                 elif msg_type == "status_update":
-                    # This can be used for more granular status, e.g. "Currently converting X..."
-                    # For now, main logging handles file names.
                     pass 
-                elif msg_type == "pending_files_list":
+                elif msg_type == "preview_pending_list": # New handler for scan preview
                     self.pending_listbox.delete(0, tk.END)
-                    self.current_pending_files = [os.path.basename(f) for f in data] # Store basenames
+                    self.current_pending_files = data # data is already list of basenames
                     for item in self.current_pending_files:
                         self.pending_listbox.insert(tk.END, item)
-                elif msg_type == "file_processing_start": # data is full filepath
-                    # Remove from pending listbox - match by basename
+                    self.progress_label_var.set(f"Preview: {len(data)} files found. Ready to convert.")
+                elif msg_type == "pending_files_list": # From actual conversion start
+                    self.pending_listbox.delete(0, tk.END)
+                    self.current_pending_files = [os.path.basename(f) for f in data] 
+                    for item in self.current_pending_files:
+                        self.pending_listbox.insert(tk.END, item)
+                elif msg_type == "file_processing_start": 
                     filename_to_remove = os.path.basename(data)
                     if filename_to_remove in self.current_pending_files:
                         try:
@@ -304,23 +335,22 @@ class Application(tk.Tk):
                             self.current_pending_files.pop(idx)
                         except ValueError:
                             logging.warning(f"Could not find {filename_to_remove} in GUI pending list to remove.")
-                elif msg_type == "file_processed_status": # data is (filepath, status_str)
+                elif msg_type == "file_processed_status": 
                     filepath, status_str = data
                     base_filename = os.path.basename(filepath)
                     self.processed_listbox.insert(tk.END, f"[{status_str.upper()}] {base_filename}")
                     self.processed_listbox.see(tk.END)
-                    # Ensure it's removed from pending if not already by file_processing_start
                     if base_filename in self.current_pending_files:
                          try:
                             idx = self.current_pending_files.index(base_filename)
                             self.pending_listbox.delete(idx)
                             self.current_pending_files.pop(idx)
                          except ValueError:
-                            pass # Already removed or wasn't there, harmless
+                            pass 
                 elif msg_type == "conversion_complete":
                     self.log_message(f"Conversion finished. Summary: {data}", logging.INFO)
                     messagebox.showinfo("Complete", f"Conversion process finished.\n{data}")
-                    self.set_controls_state("normal")
+                    self.set_controls_state("normal") # Enables all controls, including scan button
                     self.progress_label_var.set(f"Completed | {data}")
 
         except queue.Empty:
@@ -337,7 +367,6 @@ class TextHandler(logging.Handler):
 
     def emit(self, record):
         msg = self.format(record)
-        # Send log message to the main thread via queue to update GUI
         self.update_queue.put(("log", msg))
 
 def main():
