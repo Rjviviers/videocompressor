@@ -1,18 +1,27 @@
-# Media Library HEVC Converter
+# Media Converter Pro
 
-This Python script automates the conversion of an entire media library to MP4 H.265 (HEVC), optimizing for quality and streamability.
+This Python script provides a graphical user interface (GUI) to automate the conversion of an entire media library to MP4 H.265 (HEVC), optimizing for quality and streamability.
 
 ## Features
 
--   Recursive conversion of video files in a directory.
--   H.265 (HEVC) encoding using MP4 container.
--   GPU hardware acceleration support (NVIDIA NVENC, Intel QSV, AMD AMF) with CPU (libx265) fallback.
--   Automatic selection of English audio and text-based subtitle tracks.
--   Safe file replacement upon successful conversion and verification.
--   Resumable: skips already converted files.
--   Detailed logging and error handling.
--   Configurable encoding parameters (quality, profile, audio codec, etc.).
--   Dry-run mode to preview actions.
+-   **User-Friendly GUI:** Easy selection of media directory and conversion options.
+-   **Real-time Progress:**
+    -   Overall progress bar.
+    -   Lists of pending and processed files with their status (Converted, Skipped, Failed).
+    -   Detailed log output within the GUI.
+-   **Comprehensive Conversion Options:**
+    -   Recursive conversion of video files in a directory.
+    -   H.265 (HEVC) encoding using MP4 container, with Web Optimization (`+faststart`).
+    -   GPU hardware acceleration support (NVIDIA NVENC, Intel QSV, AMD AMF) with CPU (libx265) fallback.
+    -   Configurable H.265 quality level and profile (`main`, `main10`).
+    -   Configurable audio codec (e.g., `aac`, `copy`) and quality.
+    -   Automatic selection of English audio and text-based subtitle tracks.
+-   **File Management:**
+    -   Safe file replacement upon successful conversion and verification.
+    -   Option to skip conversion if a target MP4 file already exists.
+-   **Robustness:**
+    -   Detailed file logging (`conversion_gui.log` by default).
+    -   Dry-run mode to preview actions without modifying files.
 
 ## Prerequisites
 
@@ -34,52 +43,46 @@ This Python script automates the conversion of an entire media library to MP4 H.
 
 ## Usage
 
-Run the script from your terminal:
+Run the script using Python to launch the GUI:
 
 ```bash
-python main.py --input_dir /path/to/your/media --gpu_type nvidia [other options]
+python main.py
 ```
 
-### Command-line Arguments
+**Using the GUI:**
 
--   `-i, --input_dir` (Required): Root directory of the media library.
--   `-g, --gpu_type`: GPU for encoding. Choices: `nvidia`, `intel`, `amd`, `cpu`. (Default: `nvidia`)
--   `--quality_level`: Quality target (e.g., CRF for libx265, CQ for NVENC). (Default: `23`)
--   `--h265_profile`: H.265 profile. Choices: `main`, `main10`. (Default: `main`)
--   `--audio_codec`: Target audio codec. (Default: `aac`; use `copy` to try stream copying)
--   `--audio_quality`: Quality for AAC audio. (Default: `2`)
--   `--skip_existing`: Skip conversion if an MP4 with the same base name already exists.
--   `--log_file`: Path for the log file. (Default: `conversion.log`)
--   `--log_level`: Logging level. Choices: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`. (Default: `INFO`)
--   `--dry_run`: Log actions but do not execute FFmpeg or modify files.
+1.  **Media Directory:** Click "Browse" to select the root directory of your media library.
+2.  **GPU Type:** Select your desired GPU for encoding from the dropdown (or `cpu` for software encoding).
+3.  **Advanced Settings (Optional):**
+    *   **Quality Level:** Set the video quality (e.g., `23`).
+    *   **H.265 Profile:** Choose `main` or `main10`.
+    *   **Audio Codec:** Specify the audio codec (e.g., `aac`, `copy`).
+    *   **Audio Quality:** Set audio quality (ignored if codec is `copy`).
+    *   **Skip if .mp4 Exists:** Check to avoid re-converting if a target MP4 already exists.
+    *   **Dry Run:** Check to simulate the conversion process, logging actions without making changes.
+4.  **Start Conversion:** Click the "Start Conversion" button.
 
-### Examples
+**Monitoring Progress:**
 
--   **Basic conversion using NVIDIA GPU:**
-    ```bash
-    python main.py -i "/mnt/mymedia" -g nvidia
-    ```
+-   The **Pending Files** list shows videos queued for conversion.
+-   The **Processed Files** list updates with the status of each completed file.
+-   The **Progress Bar** shows overall completion.
+-   The **Log** area displays detailed messages from the conversion process.
 
--   **Convert with Intel QSV, Main10 profile, and skip existing MP4s:**
-    ```bash
-    python main.py -i "D:\Videos" -g intel --h265_profile main10 --skip_existing
-    ```
-
--   **Dry run using CPU encoding, with detailed debug logging to a custom file:**
-    ```bash
-    python main.py -i "./media_folder" -g cpu --dry_run --log_level DEBUG --log_file "my_conversion_test.log"
-    ```
+**(Optional) Command-line Overrides for Defaults:**
+While the GUI is the primary interface, initial default values for some settings can still be influenced by command-line arguments if you choose to run the script with them (e.g., `python main.py --gpu_type cpu`). However, settings chosen in the GUI will take precedence for the actual conversion task started from the GUI.
 
 ## Script Structure
 
--   `main.py`: Main execution script, argument parsing, logging setup.
--   `conversion_utils.py`: Directory traversal, file orchestration, resumability logic.
+-   `main.py`: Main execution script, Tkinter GUI, argument parsing for defaults, logging setup.
+-   `conversion_utils.py`: Directory traversal, file orchestration, resumability logic, GUI update messaging.
 -   `ffmpeg_wrapper.py`: FFmpeg/ffprobe interaction, command construction, file conversion, verification.
+-   `requirements.txt`: Notes on dependencies.
 
 ## Logging
 
-Logs are written to `conversion.log` (or the file specified by `--log_file`) and also to the console.
-Log files are rotated (5 files, 5MB each).
+-   GUI: Logs are displayed in the "Log" text area.
+-   File: Detailed logs are also written to `conversion_gui.log` (or the file specified by the `--log_file` CLI argument if used) in the script's directory. Log files are rotated (5 files, 5MB each).
 
 ## Contributing
 
